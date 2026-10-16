@@ -239,27 +239,45 @@ async function resolveRef(bareDir: string, ref: string): Promise<string | null> 
   return null;
 }
 
-// ---- skill discovery (`skills/` folders) --------------------------------------
+// ---- skill discovery --------------------------------------------------------
 
 interface SkillPathHit {
   /** null → the name comes from the file's frontmatter (markdown convention). */
   name: string | null;
-  kind: 'skill' | 'markdown';
+  kind: 'skill' | 'command' | 'markdown';
 }
 
-/** A markdown file counts only when a directory named `skills` is among its ancestors, at any depth. */
+/** A markdown file is under a `skills/` folder when a directory so named is among its ancestors. */
 function isUnderSkillsDir(line: string): boolean {
   return line.endsWith('.md') && line.split('/').slice(0, -1).includes('skills');
 }
 
 /**
- * Match what lives under a `skills/` folder, wherever that folder is in the repo:
+ * Default discovery — the three conventions (BACKWARD_COMPATIBILITY §5, additive only):
+ *  - `**\/SKILL.md`          → skill named after the parent directory (with references/)
+ *  - `**\/commands/<n>.md`   → skill `<n>`
+ *  - `.ai/skills/**\/*.md` or `.ai/cezar/skills/**\/*.md` → frontmatter/basename name
+ */
+function matchSkillPath(line: string): SkillPathHit | null {
+  if (line === 'SKILL.md' || line.endsWith('/SKILL.md')) {
+    const parts = line.split('/');
+    if (parts.length < 2) return null;
+    const parent = parts[parts.length - 2];
+    return parent && parent !== '.' ? { name: parent, kind: 'skill' } : null;
+  }
+  const cmd = /(?:^|\/)commands\/([^/]+)\.md$/.exec(line);
+  if (cmd) return { name: cmd[1] as string, kind: 'command' };
+  if (/(?:^|\/)\.ai\/(?:cezar\/)?skills\/.+\.md$/.test(line)) return { name: null, kind: 'markdown' };
+  return null;
+}
+
+/**
+ * Strict discovery for organisation repos: only what lives under a `skills/` folder, at any depth.
  *  - `…/skills/**\/<name>/SKILL.md` → directory skill named after its folder; the other files
  *    in that folder (`references/…`) belong to it and are not skills of their own
  *  - any other `…/skills/**\/*.md` → a flat skill (frontmatter name, else the file name)
- * Everything outside a `skills/` folder (docs, `commands/`, a README at the root) is ignored.
  */
-function matchSkillPath(line: string, skillDirs: readonly string[]): SkillPathHit | null {
+function matchSkillsDirPath(line: string, skillDirs: readonly string[]): SkillPathHit | null {
   if (!isUnderSkillsDir(line)) return null;
   const parts = line.split('/');
   if (parts[parts.length - 1] === 'SKILL.md') {
@@ -293,7 +311,10 @@ export async function readRemoteSkill(
  * clone only — no network. Empty list when the clone doesn't exist yet or
  * the ref can't be resolved.
  */
-export async function listRemoteSkills(src: SkillsRepoSource): Promise<Skill[]> {
+export async function listRemoteSkills(
+  src: SkillsRepoSource,
+  opts: { skillsDirOnly?: boolean } = {},
+): Promise<Skill[]> {
   const bareDir = bareDirFor(src.repo);
   if (!existsSync(join(bareDir, 'HEAD'))) return [];
   // An immutable SHA (#428): the tree listing and every body below are read at
@@ -312,7 +333,7 @@ export async function listRemoteSkills(src: SkillsRepoSource): Promise<Skill[]> 
     .map((line) => line.slice(0, -'/SKILL.md'.length))
     .filter((dir) => dir.split('/').pop() !== 'skills');
   for (const line of lines) {
-    const hit = matchSkillPath(line, skillDirs);
+    const hit = opts.skillsDirOnly ? matchSkillsDirPath(line, skillDirs) : matchSkillPath(line);
     if (!hit) continue;
     const raw = await readRemoteSkill(src, line, commit);
     if (raw === null) continue;
@@ -446,7 +467,10 @@ const teamSkillsByRoot = new Map<string, Skill[]>();
 const firstLoadByRoot = new Map<string, Promise<Skill[]>>();
 
 /** Forget every project's team-skill list — the workspace's org repos changed. */
+let teamSkillsGeneration = 0;
+
 export function invalidateTeamSkills(): void {
+  teamSkillsGeneration++;
   teamSkillsByRoot.clear();
   firstLoadByRoot.clear();
 }
@@ -487,10 +511,14 @@ export async function refreshTeamSkills(repoRoot: string): Promise<Skill[]> {
 }
 
 async function loadTeamSkills(repoRoot: string, refresh: boolean): Promise<Skill[]> {
+  const generation = teamSkillsGeneration;
   const config = await loadConfig(repoRoot);
   const org = (await loadWorkspaceConfig().catch(() => null))?.orgSkillsRepos ?? [];
-  const sources = [...config.skillsRepos];
-  for (const src of org) if (!sources.some((s) => s.repo === src.repo)) sources.push(src);
+  const sources: Array<SkillsRepoSource & { skillsDirOnly?: boolean }> = [...config.skillsRepos];
+  // Org repos are the user's own: strict `skills/` discovery, so docs and commands stay out.
+  for (const src of org) {
+    if (!sources.some((s) => s.repo === src.repo)) sources.push({ repo: src.repo, ref: src.ref, skillsDirOnly: true });
+  }
   const out: Skill[] = [];
   const seen = new Set<string>();
   for (const src of sources) {
@@ -519,7 +547,7 @@ async function loadTeamSkills(repoRoot: string, refresh: boolean): Promise<Skill
       // offline / no access — list whatever an older clone has (or nothing)
     }
     try {
-      for (const skill of await listRemoteSkills(src)) {
+      for (const skill of await listRemoteSkills(src, { skillsDirOnly: src.skillsDirOnly })) {
         if (seen.has(skill.name)) continue;
         seen.add(skill.name);
         out.push(skill);
@@ -528,6 +556,7 @@ async function loadTeamSkills(repoRoot: string, refresh: boolean): Promise<Skill
       // degrade: this source contributes nothing
     }
   }
-  teamSkillsByRoot.set(repoRoot, out);
+  // An invalidation during this load means its source list is stale: don't publish it.
+  if (generation === teamSkillsGeneration) teamSkillsByRoot.set(repoRoot, out);
   return out;
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -245,9 +245,19 @@ test('workspace org skills repos join every project\'s team skills; invalidation
   });
   invalidateTeamSkills();
   assert.deepEqual((await refreshTeamSkills(root)).map((s) => s.name), ['org-skill']);
+
+  // An entry written by a newer cezar keeps its unknown keys through an unrelated merge-write.
+  const file = join(home, '.cezar', 'config.json');
+  const raw = JSON.parse(readFileSync(file, 'utf8'));
+  raw.orgSkillsRepos[0].future = 'kept';
+  writeFileSync(file, JSON.stringify(raw));
+  await mergeWriteWorkspaceConfig((config) => {
+    config.browseRoot = '~/';
+  });
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).orgSkillsRepos[0].future, 'kept');
 });
 
-test('only files under a skills/ folder are skills, at any depth', async (t) => {
+test('skillsDirOnly: only files under a skills/ folder are skills, at any depth', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'cez-home-'));
   const prevHome = process.env.HOME;
   process.env.HOME = home;
@@ -279,6 +289,9 @@ test('only files under a skills/ folder are skills, at any depth', async (t) => 
   g(['add', '-A']);
   g(['commit', '-m', 'init']);
   await ensureBareClone(src);
-  const names = (await listRemoteSkills({ repo: src, ref: 'main' })).map((s) => s.name).sort();
-  assert.deepEqual(names, ['alpha', 'beta', 'flat-one']);
+  const strict = await listRemoteSkills({ repo: src, ref: 'main' }, { skillsDirOnly: true });
+  assert.deepEqual(strict.map((s) => s.name).sort(), ['alpha', 'beta', 'flat-one']);
+  // The default discovery stays additive (BACKWARD_COMPATIBILITY §5): legacy layouts still load.
+  const legacy = (await listRemoteSkills({ repo: src, ref: 'main' })).map((s) => s.name);
+  for (const name of ['alpha', 'beta', 'lint', 'deploy', 'README']) assert.ok(legacy.includes(name), name);
 });

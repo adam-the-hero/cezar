@@ -209,7 +209,7 @@ const workspaceConfigSchema = z
     /** The user's own skills repos (e.g. an organisation's), merged into every project's team
      *  skills after the project's own `skillsRepos`. Absent = none. */
     orgSkillsRepos: z
-      .array(z.object({ repo: z.string().min(1), ref: z.string().min(1).default('main') }))
+      .array(z.object({ repo: z.string().min(1), ref: z.string().min(1).default('main') }).passthrough())
       .optional()
       .catch(undefined),
     /** Release channel the self-updater follows (`stable` → npm `latest`, `nightly` → `nightly`,

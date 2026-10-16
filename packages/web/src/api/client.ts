@@ -2295,6 +2295,8 @@ export async function getWorkspaceConfig(opts?: ReadOptions): Promise<WorkspaceC
       ? { ...answer.branding, logoUrl: answer.branding.logoUrl ? resolveApiUrl(answer.branding.logoUrl) : null }
       : { name: 'cezar', logoUrl: null },
     agentDefaults: answer.agentDefaults ?? {},
+    // Additive key: an older server omits it.
+    orgSkillsRepos: answer.orgSkillsRepos ?? [],
     resources: {
       ...answer.resources,
       // Older servers omit this additive key; preserve an explicit null (disabled) while

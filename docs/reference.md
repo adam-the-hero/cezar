@@ -707,8 +707,6 @@ never blocks startup):
 ```jsonc
 {
   "skillsRepos": [{ "repo": "open-mercato/skills", "ref": "main" }], // team skills; [] disables
-  // Only markdown under a folder named `skills/` (any depth) is picked up: `…/skills/<name>/SKILL.md`
-  // is a directory skill (its other files are its references), any other `…/skills/**/*.md` a flat one.
   // Team-skill repos are code-trusted: a skill body becomes an agent system prompt.
   // Only owner/name, https/ssh URLs, or local paths (`/abs`, `./rel`, `~/dir`,
   // `C:\dir`) are accepted — no ext::/fd:: transport helpers. Write a relative
@@ -717,7 +715,9 @@ never blocks startup):
   // exactly that commit, and reports it as `team.commit`.
   // Skills repos shared by every project (e.g. your organisation's) are added in Settings →
   // Global → Skills, not here; they are stored in `~/.cezar/config.json` (`orgSkillsRepos`)
-  // and merged after this list, with the same source rules.
+  // and merged after this list, with the same source rules. Only markdown under a folder named
+  // `skills/` (any depth) is picked up from them: `…/skills/<name>/SKILL.md` is a directory skill
+  // (its other files are its references), any other `…/skills/**/*.md` a flat one.
   "worktreeRetention": 10,   // keep the last N finished worktrees on disk; 0 = unlimited (branch always kept)
   "defaultRunner": "claude", // agent backend: "claude" (default) · "codex" · "junie" · "opencode" · "pi"
   "modelsLocked": true,      // optional: native per-runner model is fixed/read-only; runner stays selectable
