@@ -537,16 +537,20 @@ async function loadTeamSkills(repoRoot: string, refresh: boolean): Promise<Skill
   const generation = teamSkillsGeneration;
   const config = await loadConfig(repoRoot);
   const org = (await loadWorkspaceConfig().catch(() => null))?.orgSkillsRepos ?? [];
-  const sources: Array<SkillsRepoSource & { skillsDirOnly?: boolean }> = [...config.skillsRepos];
   // Org repos are the user's own: strict `skills/` discovery, so docs and commands stay out.
-  // A project that configured nothing carries the implicit default; an explicit org entry for the
-  // same repo (say, at another ref) replaces it, while a repo the project itself lists wins.
+  // Order: what the project lists itself, then the org repos, then the implicit default — and the
+  // same repository (by cache identity, whatever its spelling) appears once, first spelling wins.
   const implicit = await projectGatedSkillsRepos(repoRoot);
-  for (const src of org) {
-    const at = sources.findIndex((s) => s.repo === src.repo);
-    const entry = { repo: src.repo, ref: src.ref, skillsDirOnly: true };
-    if (at === -1) sources.push(entry);
-    else if (implicit.has(src.repo)) sources[at] = entry;
+  const orgSources = org.map((src) => ({ repo: src.repo, ref: src.ref, skillsDirOnly: true }));
+  const own = config.skillsRepos.filter((src) => !implicit.has(src.repo));
+  const defaults = config.skillsRepos.filter((src) => implicit.has(src.repo));
+  const sources: Array<SkillsRepoSource & { skillsDirOnly?: boolean }> = [];
+  const seenRepos = new Set<string>();
+  for (const src of [...own, ...orgSources, ...defaults]) {
+    const identity = bareDirFor(src.repo);
+    if (seenRepos.has(identity)) continue;
+    seenRepos.add(identity);
+    sources.push(src);
   }
   const out: Skill[] = [];
   const seen = new Set<string>();

@@ -250,7 +250,9 @@ export async function projectGatedSkillsRepos(repoRoot: string): Promise<Set<str
     }
     // The user took control of the source list — nothing is gated; a value the
     // schema would refuse degrades to the default too (same as `loadConfig`).
-    if ((parsed as Record<string, unknown>).skillsRepos !== undefined) return none;
+    if ((parsed as Record<string, unknown>).skillsRepos !== undefined && configSchema.safeParse(parsed).success) {
+      return none;
+    }
     return new Set(DEFAULT_SKILLS_REPOS.map((r) => r.repo));
   } catch {
     // Malformed JSON degrades to the default (which loadConfig also does).

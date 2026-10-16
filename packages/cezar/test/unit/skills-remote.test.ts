@@ -14,7 +14,7 @@ import {
   refreshTeamSkills,
   safeRemoteFor,
 } from '../../src/skills-remote.js';
-import { gatedSkillsRepos } from '../../src/config.js';
+import { gatedSkillsRepos, projectGatedSkillsRepos } from '../../src/config.js';
 import { mergeWriteWorkspaceConfig } from '../../src/workspace/config.js';
 
 // ---- safeRemoteFor: repo/URL injection guard (#428) --------------------------
@@ -333,4 +333,23 @@ test('an org entry for the implicit default repo overrides its ref, and ungates 
     config.orgSkillsRepos = [{ repo: 'open-mercato/skills', ref: 'v1' }];
   });
   assert.equal((await gatedSkillsRepos(root)).has('open-mercato/skills'), false);
+});
+
+test('implicit default is detected like loadConfig: an invalid skillsRepos is not explicit', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'cez-home-'));
+  const prevCez = process.env.CEZ_HOME;
+  process.env.CEZ_HOME = join(home, '.cezar');
+  const root = mkdtempSync(join(tmpdir(), 'cez-root-'));
+  t.after(() => {
+    if (prevCez === undefined) delete process.env.CEZ_HOME;
+    else process.env.CEZ_HOME = prevCez;
+    rmSync(home, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  });
+  mkdirSync(join(root, '.ai/cezar'), { recursive: true });
+  const cfg = join(root, '.ai/cezar', 'config.json');
+  writeFileSync(cfg, JSON.stringify({ skillsRepos: 'nonsense' }));
+  assert.ok((await projectGatedSkillsRepos(root)).has('open-mercato/skills'));
+  writeFileSync(cfg, JSON.stringify({ skillsRepos: [{ repo: 'acme/skills' }] }));
+  assert.equal((await projectGatedSkillsRepos(root)).size, 0);
 });
