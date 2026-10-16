@@ -248,3 +248,29 @@ test('workspace org skills repos join every project\'s team skills; invalidation
   invalidateTeamSkills();
   assert.deepEqual((await refreshTeamSkills(root)).map((s) => s.name), ['org-skill']);
 });
+
+test('README.md files are documentation, not skills', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'cez-home-'));
+  const prevHome = process.env.HOME;
+  process.env.HOME = home;
+  const src = mkdtempSync(join(tmpdir(), 'cez-src-readme-'));
+  t.after(() => {
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    rmSync(home, { recursive: true, force: true });
+    rmSync(src, { recursive: true, force: true });
+  });
+  const g = (args: string[]) => execFileSync('git', args, { cwd: src, encoding: 'utf8' });
+  g(['-c', 'init.defaultBranch=main', 'init']);
+  g(['config', 'user.email', 'test@example.com']);
+  g(['config', 'user.name', 'Test']);
+  mkdirSync(join(src, 'commands'));
+  writeFileSync(join(src, 'commands', 'README.md'), '# Commands\n');
+  writeFileSync(join(src, 'commands', 'deploy.md'), 'deploy it\n');
+  mkdirSync(join(src, '.ai/skills'), { recursive: true });
+  writeFileSync(join(src, '.ai/skills', 'README.md'), '# Skills\n');
+  g(['add', '-A']);
+  g(['commit', '-m', 'init']);
+  await ensureBareClone(src);
+  assert.deepEqual((await listRemoteSkills({ repo: src, ref: 'main' })).map((s) => s.name), ['deploy']);
+});

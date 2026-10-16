@@ -261,8 +261,9 @@ function matchSkillPath(line: string): SkillPathHit | null {
     return parent && parent !== '.' ? { name: parent, kind: 'skill' } : null;
   }
   const cmd = /(?:^|\/)commands\/([^/]+)\.md$/.exec(line);
-  if (cmd) return { name: cmd[1] as string, kind: 'command' };
-  if (/(?:^|\/)\.ai\/(?:cezar\/)?skills\/.+\.md$/.test(line)) return { name: null, kind: 'markdown' };
+  // A README in commands/ documents the directory; it is not a skill.
+  if (cmd) return /^readme$/i.test(cmd[1] as string) ? null : { name: cmd[1] as string, kind: 'command' };
+  if (/(?:^|\/)\.ai\/(?:cezar\/)?skills\/.+\.md$/.test(line) && !/(?:^|\/)readme\.md$/i.test(line)) return { name: null, kind: 'markdown' };
   return null;
 }
 
