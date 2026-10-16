@@ -35,6 +35,13 @@ describe('PUT /workspace/config orgSkillsRepos', () => {
     expect(((await cleared.json()) as { orgSkillsRepos: unknown }).orgSkillsRepos).toEqual([]);
   });
 
+  it('keeps unknown keys on entries it replaces', async () => {
+    const saved = await put({ orgSkillsRepos: [{ repo: 'acme/skills', ref: 'main', future: 'kept' }] });
+    expect(((await saved.json()) as { orgSkillsRepos: unknown }).orgSkillsRepos).toEqual([
+      { repo: 'acme/skills', ref: 'main', future: 'kept' },
+    ]);
+  });
+
   it('rejects a transport-helper repo and an option-shaped ref', async () => {
     expect((await put({ orgSkillsRepos: [{ repo: 'ext::sh -c id' }] })).status).toBe(400);
     expect((await put({ orgSkillsRepos: [{ repo: 'acme/skills', ref: '--output=x' }] })).status).toBe(400);

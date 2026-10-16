@@ -93,9 +93,10 @@ export const setWorkspaceConfigInputSchema = z.object({
   browseRoot: z.string().trim().min(1).max(4096).optional(),
   projectsDir: z.string().trim().min(1).max(4096).optional(),
   skillsAutoUpdate: z.boolean().nullable().optional(),
-  /** Replaces the whole list. The server rejects an unsafe `repo`/`ref` with a 400. */
+  /** Replaces the whole list; entries keep unknown keys (a newer cezar's metadata). The server
+   *  rejects an unsafe `repo`/`ref` with a 400. */
   orgSkillsRepos: z
-    .array(z.object({ repo: z.string().trim().min(1).max(500), ref: z.string().trim().min(1).max(200).default('main') }))
+    .array(z.object({ repo: z.string().trim().min(1).max(500), ref: z.string().trim().min(1).max(200).default('main') }).passthrough())
     .max(20)
     .optional(),
   composerDefaults: z
