@@ -1,10 +1,11 @@
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { loadConfig, type SkillsRepoSource } from './config.ts';
 import { parseFrontmatter, type Skill } from './skills.ts';
+import { workspaceConfigPath } from './paths.ts';
 import { loadWorkspaceConfig } from './workspace/config.ts';
 
 /**
@@ -468,6 +469,18 @@ const firstLoadByRoot = new Map<string, Promise<Skill[]>>();
 
 /** Forget every project's team-skill list — the workspace's org repos changed. */
 let teamSkillsGeneration = 0;
+let lastOrgSignature: string | undefined;
+
+/** The org repos as currently on disk. `~/.cezar/` is shared by every cezar process, so another
+ *  server's save must invalidate this process's cache too — a local callback cannot see it. */
+function orgReposSignature(): string {
+  try {
+    const raw: unknown = JSON.parse(readFileSync(workspaceConfigPath(), 'utf8'));
+    return JSON.stringify((raw as { orgSkillsRepos?: unknown } | null)?.orgSkillsRepos ?? null);
+  } catch {
+    return 'null';
+  }
+}
 
 export function invalidateTeamSkills(): void {
   teamSkillsGeneration++;
@@ -476,6 +489,11 @@ export function invalidateTeamSkills(): void {
 }
 
 function initialTeamSkillsLoad(repoRoot: string): Promise<Skill[]> {
+  const signature = orgReposSignature();
+  if (signature !== lastOrgSignature) {
+    lastOrgSignature = signature;
+    invalidateTeamSkills();
+  }
   const existing = firstLoadByRoot.get(repoRoot);
   if (existing) return existing;
   const load = loadTeamSkills(repoRoot, false).catch(() => teamSkillsByRoot.get(repoRoot) ?? []);
@@ -511,6 +529,7 @@ export async function refreshTeamSkills(repoRoot: string): Promise<Skill[]> {
 }
 
 async function loadTeamSkills(repoRoot: string, refresh: boolean): Promise<Skill[]> {
+  lastOrgSignature = orgReposSignature();
   const generation = teamSkillsGeneration;
   const config = await loadConfig(repoRoot);
   const org = (await loadWorkspaceConfig().catch(() => null))?.orgSkillsRepos ?? [];

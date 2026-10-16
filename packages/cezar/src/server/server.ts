@@ -134,7 +134,7 @@ import { SkillsUpdateConflictError, SkillsUpdateCoordinator, SkillsUpdateService
 import { selfUpdateApplyRequestSchema, selfUpdateChannelRequestSchema, selfUpdateDevelopmentQuerySchema } from '@open-mercato/cezar-contract';
 import { SelfUpdateBusyError, SelfUpdateService } from '../self-update/service.ts';
 import { StarCountReader } from './star-count.ts';
-import { getTeamSkillsCached, invalidateTeamSkills, isSafeRef, refreshTeamSkills, safeRemoteFor, waitForTeamSkills } from '../skills-remote.ts';
+import { getTeamSkillsCached, isSafeRef, refreshTeamSkills, safeRemoteFor, waitForTeamSkills } from '../skills-remote.ts';
 import { appendHandoffHeartbeat, handoffProgressExcerpt, readHandoff } from '../handoff.ts';
 import { markStarted, onTodosChanged, readTodos, removeTodo, todoTaskText, type TodoItem } from '../todos.ts';
 import type { RunEvent, RunRecord, RunStatus, RunStore } from '../runs/store.ts';
@@ -3492,7 +3492,6 @@ export function createApp(deps: ServerDeps) {
       // A resource change takes effect WITHOUT a restart: refresh the shared
       // semaphore's in-memory snapshot and pump every manager (step 2.5's hook).
       if (resources !== undefined) await deps.semaphore?.refresh();
-      if (orgSkillsRepos !== undefined) invalidateTeamSkills();
       return c.json(workspaceConfigBody(written));
     })
 

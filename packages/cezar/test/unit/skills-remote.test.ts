@@ -7,7 +7,7 @@ import test from 'node:test';
 import {
   ensureBareClone,
   getTeamSkillsCached,
-  invalidateTeamSkills,
+  waitForTeamSkills,
   isPinnedSha,
   isSafeRef,
   listRemoteSkills,
@@ -243,8 +243,17 @@ test('workspace org skills repos join every project\'s team skills; invalidation
   await mergeWriteWorkspaceConfig((config) => {
     config.orgSkillsRepos = [{ repo: src, ref: 'main' }];
   });
-  invalidateTeamSkills();
   assert.deepEqual((await refreshTeamSkills(root)).map((s) => s.name), ['org-skill']);
+
+  // Another process changing the shared config must reach this process's cache without a callback.
+  assert.deepEqual((await waitForTeamSkills(root)).map((s) => s.name), ['org-skill']);
+  await mergeWriteWorkspaceConfig((config) => {
+    delete config.orgSkillsRepos;
+  });
+  assert.deepEqual((await waitForTeamSkills(root)).map((s) => s.name), []);
+  await mergeWriteWorkspaceConfig((config) => {
+    config.orgSkillsRepos = [{ repo: src, ref: 'main' }];
+  });
 
   // An entry written by a newer cezar keeps its unknown keys through an unrelated merge-write.
   const file = join(home, '.cezar', 'config.json');
@@ -255,6 +264,16 @@ test('workspace org skills repos join every project\'s team skills; invalidation
     config.browseRoot = '~/';
   });
   assert.equal(JSON.parse(readFileSync(file, 'utf8')).orgSkillsRepos[0].future, 'kept');
+
+  // A hand-edited config past the PUT bounds is trimmed, one bad row never evicts the rest.
+  const big = JSON.parse(readFileSync(file, 'utf8'));
+  big.orgSkillsRepos = [
+    { repo: 'x'.repeat(501) },
+    ...Array.from({ length: 30 }, (_, i) => ({ repo: `acme/s${i}` })),
+  ];
+  writeFileSync(file, JSON.stringify(big));
+  const { loadWorkspaceConfig } = await import('../../src/workspace/config.js');
+  assert.equal((await loadWorkspaceConfig()).orgSkillsRepos?.length, 20);
 });
 
 test('skillsDirOnly: only files under a skills/ folder are skills, at any depth', async (t) => {
