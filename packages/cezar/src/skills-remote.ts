@@ -239,32 +239,35 @@ async function resolveRef(bareDir: string, ref: string): Promise<string | null> 
   return null;
 }
 
-// ---- skill discovery (three conventions) --------------------------------------
+// ---- skill discovery (`skills/` folders) --------------------------------------
 
 interface SkillPathHit {
   /** null → the name comes from the file's frontmatter (markdown convention). */
   name: string | null;
-  kind: 'skill' | 'command' | 'markdown';
+  kind: 'skill' | 'markdown';
+}
+
+/** A markdown file counts only when a directory named `skills` is among its ancestors, at any depth. */
+function isUnderSkillsDir(line: string): boolean {
+  return line.endsWith('.md') && line.split('/').slice(0, -1).includes('skills');
 }
 
 /**
- * Match the janitor conventions plus our own:
- *  - `**\/SKILL.md`          → skill named after the parent directory (with references/)
- *  - `**\/commands/<n>.md`   → skill `<n>`
- *  - `.ai/skills/**\/*.md` or `.ai/cezar/skills/**\/*.md` → frontmatter/basename name
+ * Match what lives under a `skills/` folder, wherever that folder is in the repo:
+ *  - `…/skills/**\/<name>/SKILL.md` → directory skill named after its folder; the other files
+ *    in that folder (`references/…`) belong to it and are not skills of their own
+ *  - any other `…/skills/**\/*.md` → a flat skill (frontmatter name, else the file name)
+ * Everything outside a `skills/` folder (docs, `commands/`, a README at the root) is ignored.
  */
-function matchSkillPath(line: string): SkillPathHit | null {
-  if (line === 'SKILL.md' || line.endsWith('/SKILL.md')) {
-    const parts = line.split('/');
-    if (parts.length < 2) return null;
+function matchSkillPath(line: string, skillDirs: readonly string[]): SkillPathHit | null {
+  if (!isUnderSkillsDir(line)) return null;
+  const parts = line.split('/');
+  if (parts[parts.length - 1] === 'SKILL.md') {
     const parent = parts[parts.length - 2];
-    return parent && parent !== '.' ? { name: parent, kind: 'skill' } : null;
+    return parent && parent !== 'skills' ? { name: parent, kind: 'skill' } : null;
   }
-  const cmd = /(?:^|\/)commands\/([^/]+)\.md$/.exec(line);
-  // A README in commands/ documents the directory; it is not a skill.
-  if (cmd) return /^readme$/i.test(cmd[1] as string) ? null : { name: cmd[1] as string, kind: 'command' };
-  if (/(?:^|\/)\.ai\/(?:cezar\/)?skills\/.+\.md$/.test(line) && !/(?:^|\/)readme\.md$/i.test(line)) return { name: null, kind: 'markdown' };
-  return null;
+  if (skillDirs.some((dir) => line.startsWith(`${dir}/`))) return null;
+  return { name: null, kind: 'markdown' };
 }
 
 /**
@@ -303,9 +306,13 @@ export async function listRemoteSkills(src: SkillsRepoSource): Promise<Skill[]> 
 
   const skills: Skill[] = [];
   const seen = new Set<string>();
-  for (const line of ls.stdout.split('\n')) {
-    if (!line) continue;
-    const hit = matchSkillPath(line);
+  const lines = ls.stdout.split('\n').filter(Boolean);
+  const skillDirs = lines
+    .filter((line) => isUnderSkillsDir(line) && line.endsWith('/SKILL.md'))
+    .map((line) => line.slice(0, -'/SKILL.md'.length))
+    .filter((dir) => dir.split('/').pop() !== 'skills');
+  for (const line of lines) {
+    const hit = matchSkillPath(line, skillDirs);
     if (!hit) continue;
     const raw = await readRemoteSkill(src, line, commit);
     if (raw === null) continue;

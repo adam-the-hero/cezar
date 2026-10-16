@@ -707,6 +707,8 @@ never blocks startup):
 ```jsonc
 {
   "skillsRepos": [{ "repo": "open-mercato/skills", "ref": "main" }], // team skills; [] disables
+  // Only markdown under a folder named `skills/` (any depth) is picked up: `…/skills/<name>/SKILL.md`
+  // is a directory skill (its other files are its references), any other `…/skills/**/*.md` a flat one.
   // Team-skill repos are code-trusted: a skill body becomes an agent system prompt.
   // Only owner/name, https/ssh URLs, or local paths (`/abs`, `./rel`, `~/dir`,
   // `C:\dir`) are accepted — no ext::/fd:: transport helpers. Write a relative

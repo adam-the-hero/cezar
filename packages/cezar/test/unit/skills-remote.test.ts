@@ -121,13 +121,11 @@ test('listRemoteSkills clones a local repo, pins the SHA, and refuses a bad ref'
   g(['-c', 'init.defaultBranch=main', 'init']);
   g(['config', 'user.email', 'test@example.com']);
   g(['config', 'user.name', 'Test']);
-  writeFileSync(
-    join(srcDir, 'SKILL.md'),
-    '---\nname: demo\ndescription: a demo skill\n---\nbody text\n',
-  );
-  // A directory skill needs SKILL.md under a directory to be named after it.
+  // A directory skill needs SKILL.md under a `skills/` folder, named after its own directory.
   execFileSync('mkdir', ['-p', join(srcDir, 'greeter')]);
   writeFileSync(join(srcDir, 'greeter', 'SKILL.md'), '---\ndescription: hi\n---\nsay hi\n');
+  execFileSync('mkdir', ['-p', join(srcDir, 'skills/greeter')]);
+  writeFileSync(join(srcDir, 'skills/greeter', 'SKILL.md'), '---\ndescription: hi\n---\nsay hi\n');
   g(['add', '-A']);
   g(['commit', '-m', 'init']);
   const sha = g(['rev-parse', 'HEAD']);
@@ -174,8 +172,8 @@ test('team-skills cache is keyed by repoRoot — projects never see each other\'
     g(['-c', 'init.defaultBranch=main', 'init']);
     g(['config', 'user.email', 'test@example.com']);
     g(['config', 'user.name', 'Test']);
-    mkdirSync(join(src, name));
-    writeFileSync(join(src, name, 'SKILL.md'), `---\ndescription: ${name}\n---\n${name} body\n`);
+    mkdirSync(join(src, 'skills', name), { recursive: true });
+    writeFileSync(join(src, 'skills', name, 'SKILL.md'), `---\ndescription: ${name}\n---\n${name} body\n`);
     g(['add', '-A']);
     g(['commit', '-m', 'init']);
     return src;
@@ -230,8 +228,8 @@ test('workspace org skills repos join every project\'s team skills; invalidation
   g(['-c', 'init.defaultBranch=main', 'init']);
   g(['config', 'user.email', 'test@example.com']);
   g(['config', 'user.name', 'Test']);
-  mkdirSync(join(src, 'org-skill'));
-  writeFileSync(join(src, 'org-skill', 'SKILL.md'), '---\ndescription: org\n---\norg body\n');
+  mkdirSync(join(src, 'skills/org-skill'), { recursive: true });
+  writeFileSync(join(src, 'skills/org-skill', 'SKILL.md'), '---\ndescription: org\n---\norg body\n');
   g(['add', '-A']);
   g(['commit', '-m', 'init']);
 
@@ -249,11 +247,11 @@ test('workspace org skills repos join every project\'s team skills; invalidation
   assert.deepEqual((await refreshTeamSkills(root)).map((s) => s.name), ['org-skill']);
 });
 
-test('README.md files are documentation, not skills', async (t) => {
+test('only files under a skills/ folder are skills, at any depth', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'cez-home-'));
   const prevHome = process.env.HOME;
   process.env.HOME = home;
-  const src = mkdtempSync(join(tmpdir(), 'cez-src-readme-'));
+  const src = mkdtempSync(join(tmpdir(), 'cez-src-depth-'));
   t.after(() => {
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
@@ -264,13 +262,23 @@ test('README.md files are documentation, not skills', async (t) => {
   g(['-c', 'init.defaultBranch=main', 'init']);
   g(['config', 'user.email', 'test@example.com']);
   g(['config', 'user.name', 'Test']);
-  mkdirSync(join(src, 'commands'));
-  writeFileSync(join(src, 'commands', 'README.md'), '# Commands\n');
-  writeFileSync(join(src, 'commands', 'deploy.md'), 'deploy it\n');
-  mkdirSync(join(src, '.ai/skills'), { recursive: true });
-  writeFileSync(join(src, '.ai/skills', 'README.md'), '# Skills\n');
+  const put = (path: string, body = 'body\n') => {
+    mkdirSync(join(src, path, '..'), { recursive: true });
+    writeFileSync(join(src, path), body);
+  };
+  put('README.md', '# repo\n');
+  put('commands/README.md');
+  put('commands/deploy.md');
+  put('docs/guide.md');
+  put('SKILL.md');
+  put('tools/lint/SKILL.md'); // no skills/ ancestor
+  put('skills/alpha/SKILL.md');
+  put('skills/alpha/references/notes.md'); // belongs to alpha
+  put('a/b/skills/c/beta/SKILL.md'); // nested skills folder
+  put('.ai/skills/flat.md', '---\nname: flat-one\n---\nx\n');
   g(['add', '-A']);
   g(['commit', '-m', 'init']);
   await ensureBareClone(src);
-  assert.deepEqual((await listRemoteSkills({ repo: src, ref: 'main' })).map((s) => s.name), ['deploy']);
+  const names = (await listRemoteSkills({ repo: src, ref: 'main' })).map((s) => s.name).sort();
+  assert.deepEqual(names, ['alpha', 'beta', 'flat-one']);
 });
