@@ -713,6 +713,9 @@ never blocks startup):
   // path as `./name`, not a bare `name`. Pin `ref` to a full commit SHA to freeze
   // the source against a moving branch head — cezar verifies it resolves to
   // exactly that commit, and reports it as `team.commit`.
+  // Skills repos shared by every project (e.g. your organisation's) are added in Settings →
+  // Global → Skills, not here; they are stored in `~/.cezar/config.json` (`orgSkillsRepos`)
+  // and merged after this list, with the same source rules.
   "worktreeRetention": 10,   // keep the last N finished worktrees on disk; 0 = unlimited (branch always kept)
   "defaultRunner": "claude", // agent backend: "claude" (default) · "codex" · "junie" · "opencode" · "pi"
   "modelsLocked": true,      // optional: native per-runner model is fixed/read-only; runner stays selectable

@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { loadConfig, type SkillsRepoSource } from './config.ts';
 import { parseFrontmatter, type Skill } from './skills.ts';
+import { loadWorkspaceConfig } from './workspace/config.ts';
 
 /**
  * Team skills from remote git repos (spec 005), janitor-style: a bare clone
@@ -436,6 +437,12 @@ export function shouldPassiveFetch(opts: {
 const teamSkillsByRoot = new Map<string, Skill[]>();
 const firstLoadByRoot = new Map<string, Promise<Skill[]>>();
 
+/** Forget every project's team-skill list — the workspace's org repos changed. */
+export function invalidateTeamSkills(): void {
+  teamSkillsByRoot.clear();
+  firstLoadByRoot.clear();
+}
+
 function initialTeamSkillsLoad(repoRoot: string): Promise<Skill[]> {
   const existing = firstLoadByRoot.get(repoRoot);
   if (existing) return existing;
@@ -473,9 +480,12 @@ export async function refreshTeamSkills(repoRoot: string): Promise<Skill[]> {
 
 async function loadTeamSkills(repoRoot: string, refresh: boolean): Promise<Skill[]> {
   const config = await loadConfig(repoRoot);
+  const org = (await loadWorkspaceConfig().catch(() => null))?.orgSkillsRepos ?? [];
+  const sources = [...config.skillsRepos];
+  for (const src of org) if (!sources.some((s) => s.repo === src.repo)) sources.push(src);
   const out: Skill[] = [];
   const seen = new Set<string>();
-  for (const src of config.skillsRepos) {
+  for (const src of sources) {
     try {
       if (refresh) {
         const { bareDir, created } = await ensureBareClone(src.repo);

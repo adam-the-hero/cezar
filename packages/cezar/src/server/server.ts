@@ -134,7 +134,7 @@ import { SkillsUpdateConflictError, SkillsUpdateCoordinator, SkillsUpdateService
 import { selfUpdateApplyRequestSchema, selfUpdateChannelRequestSchema, selfUpdateDevelopmentQuerySchema } from '@open-mercato/cezar-contract';
 import { SelfUpdateBusyError, SelfUpdateService } from '../self-update/service.ts';
 import { StarCountReader } from './star-count.ts';
-import { getTeamSkillsCached, refreshTeamSkills, waitForTeamSkills } from '../skills-remote.ts';
+import { getTeamSkillsCached, invalidateTeamSkills, isSafeRef, refreshTeamSkills, safeRemoteFor, waitForTeamSkills } from '../skills-remote.ts';
 import { appendHandoffHeartbeat, handoffProgressExcerpt, readHandoff } from '../handoff.ts';
 import { markStarted, onTodosChanged, readTodos, removeTodo, todoTaskText, type TodoItem } from '../todos.ts';
 import type { RunEvent, RunRecord, RunStatus, RunStore } from '../runs/store.ts';
@@ -3347,6 +3347,7 @@ export function createApp(deps: ServerDeps) {
     projectsDir: config.projectsDir,
     skillsAutoUpdate: config.skillsAutoUpdate ?? null,
     effectiveSkillsAutoUpdate: effectiveSkillsAutoUpdate(config),
+    orgSkillsRepos: config.orgSkillsRepos ?? [],
     composerDefaults: {
       autonomous: config.composerDefaults.autonomous ?? null,
       worktree: config.composerDefaults.worktree ?? null,
@@ -3397,7 +3398,12 @@ export function createApp(deps: ServerDeps) {
 
     .put('/workspace/config', jsonZodValidator(() => setWorkspaceConfigInputSchema), async (c) => {
       const parsed = { data: c.req.valid('json') };
-      const { browseRoot, projectsDir, skillsAutoUpdate, composerDefaults, resources, agentDefaults, branding } = parsed.data;
+      const { browseRoot, projectsDir, skillsAutoUpdate, orgSkillsRepos, composerDefaults, resources, agentDefaults, branding } = parsed.data;
+      for (const src of orgSkillsRepos ?? []) {
+        if (safeRemoteFor(src.repo) === null || !isSafeRef(src.ref)) {
+          return c.json({ error: `unsafe skills repo: ${src.repo}@${src.ref}` }, 400);
+        }
+      }
       for (const [configuredRoot, create] of [
         [browseRoot, false],
         [projectsDir, true],
@@ -3435,6 +3441,10 @@ export function createApp(deps: ServerDeps) {
           if (projectsDir !== undefined) config.projectsDir = projectsDir;
           if (skillsAutoUpdate === null) delete config.skillsAutoUpdate;
           else if (skillsAutoUpdate !== undefined) config.skillsAutoUpdate = skillsAutoUpdate;
+          if (orgSkillsRepos !== undefined) {
+            if (orgSkillsRepos.length === 0) delete config.orgSkillsRepos;
+            else config.orgSkillsRepos = orgSkillsRepos;
+          }
           if (composerDefaults?.autonomous === null) delete config.composerDefaults.autonomous;
           else if (composerDefaults?.autonomous !== undefined) {
             config.composerDefaults.autonomous = composerDefaults.autonomous;
@@ -3482,6 +3492,7 @@ export function createApp(deps: ServerDeps) {
       // A resource change takes effect WITHOUT a restart: refresh the shared
       // semaphore's in-memory snapshot and pump every manager (step 2.5's hook).
       if (resources !== undefined) await deps.semaphore?.refresh();
+      if (orgSkillsRepos !== undefined) invalidateTeamSkills();
       return c.json(workspaceConfigBody(written));
     })
 

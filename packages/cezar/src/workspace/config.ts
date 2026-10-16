@@ -206,6 +206,12 @@ const workspaceConfigSchema = z
     /** Optional auto-update override. Absence inherits the environment/default
      *  and must stay absent on unrelated merge-writes. */
     skillsAutoUpdate: z.boolean().optional().catch(undefined),
+    /** The user's own skills repos (e.g. an organisation's), merged into every project's team
+     *  skills after the project's own `skillsRepos`. Absent = none. */
+    orgSkillsRepos: z
+      .array(z.object({ repo: z.string().min(1), ref: z.string().min(1).default('main') }))
+      .optional()
+      .catch(undefined),
     /** Release channel the self-updater follows (`stable` → npm `latest`, `nightly` → `nightly`,
      *  `development` → none: a worktree or PR preview picked by hand). Absent inherits
      *  `CEZ_UPDATE_CHANNEL`, then stable. */

@@ -7,12 +7,14 @@ import test from 'node:test';
 import {
   ensureBareClone,
   getTeamSkillsCached,
+  invalidateTeamSkills,
   isPinnedSha,
   isSafeRef,
   listRemoteSkills,
   refreshTeamSkills,
   safeRemoteFor,
 } from '../../src/skills-remote.js';
+import { mergeWriteWorkspaceConfig } from '../../src/workspace/config.js';
 
 // ---- safeRemoteFor: repo/URL injection guard (#428) --------------------------
 
@@ -203,4 +205,46 @@ test('team-skills cache is keyed by repoRoot — projects never see each other\'
   // A's scope was served B's skills. Each root must keep its own entry.
   assert.deepEqual(getTeamSkillsCached(rootA).map((s) => s.name), ['alpha-skill']);
   assert.deepEqual(getTeamSkillsCached(rootB).map((s) => s.name), ['beta-skill']);
+});
+
+// ---- organisation skills repos from the workspace config (Global settings) ----
+
+test('workspace org skills repos join every project\'s team skills; invalidation re-reads them', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'cez-home-'));
+  const prevHome = process.env.HOME;
+  const prevCez = process.env.CEZ_HOME;
+  process.env.HOME = home;
+  process.env.CEZ_HOME = join(home, '.cezar');
+  const dirs: string[] = [home];
+  t.after(() => {
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    if (prevCez === undefined) delete process.env.CEZ_HOME;
+    else process.env.CEZ_HOME = prevCez;
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  });
+
+  const src = mkdtempSync(join(tmpdir(), 'cez-src-org-'));
+  dirs.push(src);
+  const g = (args: string[]) => execFileSync('git', args, { cwd: src, encoding: 'utf8' });
+  g(['-c', 'init.defaultBranch=main', 'init']);
+  g(['config', 'user.email', 'test@example.com']);
+  g(['config', 'user.name', 'Test']);
+  mkdirSync(join(src, 'org-skill'));
+  writeFileSync(join(src, 'org-skill', 'SKILL.md'), '---\ndescription: org\n---\norg body\n');
+  g(['add', '-A']);
+  g(['commit', '-m', 'init']);
+
+  const root = mkdtempSync(join(tmpdir(), 'cez-root-'));
+  dirs.push(root);
+  mkdirSync(join(root, '.ai/cezar'), { recursive: true });
+  writeFileSync(join(root, '.ai/cezar', 'config.json'), JSON.stringify({ skillsRepos: [] }));
+
+  assert.deepEqual((await refreshTeamSkills(root)).map((s) => s.name), []);
+
+  await mergeWriteWorkspaceConfig((config) => {
+    config.orgSkillsRepos = [{ repo: src, ref: 'main' }];
+  });
+  invalidateTeamSkills();
+  assert.deepEqual((await refreshTeamSkills(root)).map((s) => s.name), ['org-skill']);
 });
