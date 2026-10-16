@@ -3403,6 +3403,11 @@ export function createApp(deps: ServerDeps) {
         if (safeRemoteFor(src.repo) === null || !isSafeRef(src.ref)) {
           return c.json({ error: `unsafe skills repo: ${src.repo}@${src.ref}` }, 400);
         }
+        // Global setting, shared by processes started in different directories: a relative path
+        // would resolve differently in each, while the cache directory is the same.
+        if (/^\.{1,2}([\\/]|$)/.test(src.repo)) {
+          return c.json({ error: `use an absolute path for a local skills repo: ${src.repo}` }, 400);
+        }
       }
       for (const [configuredRoot, create] of [
         [browseRoot, false],

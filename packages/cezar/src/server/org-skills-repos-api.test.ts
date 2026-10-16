@@ -45,5 +45,9 @@ describe('PUT /workspace/config orgSkillsRepos', () => {
   it('rejects a transport-helper repo and an option-shaped ref', async () => {
     expect((await put({ orgSkillsRepos: [{ repo: 'ext::sh -c id' }] })).status).toBe(400);
     expect((await put({ orgSkillsRepos: [{ repo: 'acme/skills', ref: '--output=x' }] })).status).toBe(400);
+    // Relative local paths resolve per process; the setting is global.
+    expect((await put({ orgSkillsRepos: [{ repo: './skills' }] })).status).toBe(400);
+    expect((await put({ orgSkillsRepos: [{ repo: '../skills' }] })).status).toBe(400);
+    expect((await put({ orgSkillsRepos: [{ repo: '/abs/skills' }] })).status).toBe(200);
   });
 });
