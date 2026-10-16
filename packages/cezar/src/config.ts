@@ -234,7 +234,7 @@ async function ownWorktreeRetention(repoRoot: string): Promise<number | undefine
  * "the user said nothing". So we probe the raw file for the key's presence — the
  * same reason `ownWorktreeRetention` below reads the raw JSON.
  */
-export async function gatedSkillsRepos(repoRoot: string): Promise<Set<string>> {
+export async function projectGatedSkillsRepos(repoRoot: string): Promise<Set<string>> {
   const none = new Set<string>();
   let raw: string;
   try {
@@ -256,6 +256,14 @@ export async function gatedSkillsRepos(repoRoot: string): Promise<Set<string>> {
     // Malformed JSON degrades to the default (which loadConfig also does).
     return new Set(DEFAULT_SKILLS_REPOS.map((r) => r.repo));
   }
+}
+
+/** A repo the user added in Global settings is an explicit choice — never gated, whatever the project says. */
+export async function gatedSkillsRepos(repoRoot: string): Promise<Set<string>> {
+  const gated = await projectGatedSkillsRepos(repoRoot);
+  const org = (await loadWorkspaceConfig().catch(() => null))?.orgSkillsRepos ?? [];
+  for (const src of org) gated.delete(src.repo);
+  return gated;
 }
 
 /**

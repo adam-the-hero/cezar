@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { loadConfig, type SkillsRepoSource } from './config.ts';
+import { loadConfig, projectGatedSkillsRepos, type SkillsRepoSource } from './config.ts';
 import { parseFrontmatter, type Skill } from './skills.ts';
 import { workspaceConfigPath } from './paths.ts';
 import { loadWorkspaceConfig } from './workspace/config.ts';
@@ -488,12 +488,16 @@ export function invalidateTeamSkills(): void {
   firstLoadByRoot.clear();
 }
 
-function initialTeamSkillsLoad(repoRoot: string): Promise<Skill[]> {
+/** Drop every cached list when the org repos on disk differ from the ones last loaded. */
+function syncOrgSignature(): void {
   const signature = orgReposSignature();
-  if (signature !== lastOrgSignature) {
-    lastOrgSignature = signature;
-    invalidateTeamSkills();
-  }
+  if (signature === lastOrgSignature) return;
+  lastOrgSignature = signature;
+  invalidateTeamSkills();
+}
+
+function initialTeamSkillsLoad(repoRoot: string): Promise<Skill[]> {
+  syncOrgSignature();
   const existing = firstLoadByRoot.get(repoRoot);
   if (existing) return existing;
   const load = loadTeamSkills(repoRoot, false).catch(() => teamSkillsByRoot.get(repoRoot) ?? []);
@@ -529,14 +533,20 @@ export async function refreshTeamSkills(repoRoot: string): Promise<Skill[]> {
 }
 
 async function loadTeamSkills(repoRoot: string, refresh: boolean): Promise<Skill[]> {
-  lastOrgSignature = orgReposSignature();
+  syncOrgSignature();
   const generation = teamSkillsGeneration;
   const config = await loadConfig(repoRoot);
   const org = (await loadWorkspaceConfig().catch(() => null))?.orgSkillsRepos ?? [];
   const sources: Array<SkillsRepoSource & { skillsDirOnly?: boolean }> = [...config.skillsRepos];
   // Org repos are the user's own: strict `skills/` discovery, so docs and commands stay out.
+  // A project that configured nothing carries the implicit default; an explicit org entry for the
+  // same repo (say, at another ref) replaces it, while a repo the project itself lists wins.
+  const implicit = await projectGatedSkillsRepos(repoRoot);
   for (const src of org) {
-    if (!sources.some((s) => s.repo === src.repo)) sources.push({ repo: src.repo, ref: src.ref, skillsDirOnly: true });
+    const at = sources.findIndex((s) => s.repo === src.repo);
+    const entry = { repo: src.repo, ref: src.ref, skillsDirOnly: true };
+    if (at === -1) sources.push(entry);
+    else if (implicit.has(src.repo)) sources[at] = entry;
   }
   const out: Skill[] = [];
   const seen = new Set<string>();

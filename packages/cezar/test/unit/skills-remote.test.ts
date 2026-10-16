@@ -14,6 +14,7 @@ import {
   refreshTeamSkills,
   safeRemoteFor,
 } from '../../src/skills-remote.js';
+import { gatedSkillsRepos } from '../../src/config.js';
 import { mergeWriteWorkspaceConfig } from '../../src/workspace/config.js';
 
 // ---- safeRemoteFor: repo/URL injection guard (#428) --------------------------
@@ -313,4 +314,23 @@ test('skillsDirOnly: only files under a skills/ folder are skills, at any depth'
   // The default discovery stays additive (BACKWARD_COMPATIBILITY §5): legacy layouts still load.
   const legacy = (await listRemoteSkills({ repo: src, ref: 'main' })).map((s) => s.name);
   for (const name of ['alpha', 'beta', 'lint', 'deploy', 'README']) assert.ok(legacy.includes(name), name);
+});
+
+test('an org entry for the implicit default repo overrides its ref, and ungates it', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'cez-home-'));
+  const prevCez = process.env.CEZ_HOME;
+  process.env.CEZ_HOME = join(home, '.cezar');
+  const root = mkdtempSync(join(tmpdir(), 'cez-root-'));
+  t.after(() => {
+    if (prevCez === undefined) delete process.env.CEZ_HOME;
+    else process.env.CEZ_HOME = prevCez;
+    rmSync(home, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  });
+  const before = await gatedSkillsRepos(root);
+  assert.ok(before.has('open-mercato/skills'));
+  await mergeWriteWorkspaceConfig((config) => {
+    config.orgSkillsRepos = [{ repo: 'open-mercato/skills', ref: 'v1' }];
+  });
+  assert.equal((await gatedSkillsRepos(root)).has('open-mercato/skills'), false);
 });
