@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { worktreeLifecycleConfigSchema } from './worktree-lifecycle.ts';
 import { type Runner, runnerSchema } from './health.ts';
 
 /**
@@ -310,6 +311,9 @@ export const workspaceUiStateSchema = z.looseObject({
   notifications: z.looseObject({ enabled: z.boolean().optional() }).optional(),
   /** Desktop Tasks-table density, shared across every project in this workspace. */
   taskTable: taskTableUiStateSchema.optional(),
+  /** Keyboard shortcuts the user changed (spec 2026-10-17-task-palette): task-palette command id →
+   *  chord (`Mod+Shift+P`), or `null` to unbind a default. Absent ids keep the shipped default. */
+  keybindings: z.record(z.string(), z.string().nullable()).optional(),
   /** LEGACY, exactly like `sidebar` above — the last settled project-scoped page, restored when
    *  entering at the exact bare root. The shape is unchanged and still accepted, but the current
    *  cockpit keeps it in localStorage (`packages/web/src/lib/last-location.ts`): stored here, the
@@ -361,6 +365,12 @@ export const setWorkspaceUiStateInputSchema = z
       })
       .optional(),
     importedSkills: z.array(z.string().min(1).max(200)).max(WORKSPACE_UI_STATE_MAX_KEYS).optional(),
+    keybindings: z
+      .record(z.string().min(1).max(120), z.string().min(1).max(40).nullable())
+      .refine((map) => Object.keys(map).length <= WORKSPACE_UI_STATE_MAX_KEYS, {
+        message: `keybindings must have at most ${WORKSPACE_UI_STATE_MAX_KEYS} entries`,
+      })
+      .optional(),
     taskTable: taskTableUiStateSchema
       .extend({
         expandedColumns: z
@@ -403,6 +413,8 @@ export type RunnerModels = z.infer<typeof runnerModelsSchema>;
 
 /** `GET /api/v1/config` — every Settings → Agents knob in one read. */
 export const configResponseSchema = z.object({
+  worktreeLifecycle: worktreeLifecycleConfigSchema.optional(),
+  worktreeLifecycleRevision: z.string().optional(),
   baseBranch: z.string().nullable(),
   defaultRunner: runnerSchema,
   systemPrompt: z.string().nullable(),
@@ -439,6 +451,8 @@ export type SetConfigResponse = z.infer<typeof setConfigResponseSchema>;
  * another runner's preset.
  */
 export const setConfigInputSchema = z.object({
+  worktreeLifecycle: worktreeLifecycleConfigSchema.nullable().optional(),
+  worktreeLifecycleRevision: z.string().nullable().optional(),
   baseBranch: z.string().trim().min(1).max(200).nullable().optional(),
   defaultRunner: runnerSchema.optional(),
   systemPrompt: z.string().trim().max(20_000).nullable().optional(),
@@ -568,6 +582,12 @@ export const providerConnectResponseSchema = z.discriminatedUnion('opened', [
   z.object({ opened: z.literal(false), connected: z.literal(true), command: z.string() }),
 ]);
 export type ProviderConnectResponse = z.infer<typeof providerConnectResponseSchema>;
+
+/** `POST /api/v1/providers/:provider/update` — a terminal was handed the agent CLI's own update
+ *  command (`opencode upgrade`). Every other outcome is a 409 `{error, command?}`: `command` for
+ *  the clipboard fallback, absent when the CLI has no self-update. */
+export const providerUpdateResponseSchema = z.object({ opened: z.literal(true), command: z.string() });
+export type ProviderUpdateResponse = z.infer<typeof providerUpdateResponseSchema>;
 
 // ---- host model catalog (`GET /api/v1/models`) -----------------------------------------------
 
