@@ -13,6 +13,7 @@ import {
   listRemoteSkills,
   refreshTeamSkills,
   safeRemoteFor,
+  sourceIdentity,
 } from '../../src/skills-remote.js';
 import { gatedSkillsRepos, projectGatedSkillsRepos } from '../../src/config.js';
 import { mergeWriteWorkspaceConfig } from '../../src/workspace/config.js';
@@ -352,4 +353,53 @@ test('implicit default is detected like loadConfig: an invalid skillsRepos is no
   assert.ok((await projectGatedSkillsRepos(root)).has('open-mercato/skills'));
   writeFileSync(cfg, JSON.stringify({ skillsRepos: [{ repo: 'acme/skills' }] }));
   assert.equal((await projectGatedSkillsRepos(root)).size, 0);
+});
+
+test('a project listing one repo at two refs keeps both; org repos only drop duplicates by identity', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'cez-home-'));
+  const prevHome = process.env.HOME;
+  const prevCez = process.env.CEZ_HOME;
+  process.env.HOME = home;
+  process.env.CEZ_HOME = join(home, '.cezar');
+  const dirs: string[] = [home];
+  t.after(() => {
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    if (prevCez === undefined) delete process.env.CEZ_HOME;
+    else process.env.CEZ_HOME = prevCez;
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  });
+  const src = mkdtempSync(join(tmpdir(), 'cez-src-refs-'));
+  dirs.push(src);
+  const g = (args: string[]) => execFileSync('git', args, { cwd: src, encoding: 'utf8' });
+  g(['-c', 'init.defaultBranch=main', 'init']);
+  g(['config', 'user.email', 'test@example.com']);
+  g(['config', 'user.name', 'Test']);
+  mkdirSync(join(src, 'skills/base'), { recursive: true });
+  writeFileSync(join(src, 'skills/base', 'SKILL.md'), 'base\n');
+  g(['add', '-A']);
+  g(['commit', '-m', 'base']);
+  g(['branch', 'next']);
+  g(['checkout', '-q', 'next']);
+  mkdirSync(join(src, 'skills/only-next'), { recursive: true });
+  writeFileSync(join(src, 'skills/only-next', 'SKILL.md'), 'next\n');
+  g(['add', '-A']);
+  g(['commit', '-m', 'next']);
+
+  const root = mkdtempSync(join(tmpdir(), 'cez-root-'));
+  dirs.push(root);
+  mkdirSync(join(root, '.ai/cezar'), { recursive: true });
+  writeFileSync(
+    join(root, '.ai/cezar', 'config.json'),
+    JSON.stringify({ skillsRepos: [{ repo: src, ref: 'main' }, { repo: src, ref: 'next' }] }),
+  );
+  const names = (await refreshTeamSkills(root)).map((s) => s.name).sort();
+  assert.deepEqual(names, ['base', 'only-next']);
+});
+
+test('sourceIdentity folds GitHub case and spelling, but not local paths', () => {
+  assert.equal(sourceIdentity('Acme/Skills'), sourceIdentity('acme/skills'));
+  assert.equal(sourceIdentity('https://github.com/Acme/Skills.git'), sourceIdentity('acme/skills'));
+  assert.equal(sourceIdentity('git@github.com:Acme/Skills.git'), sourceIdentity('acme/skills'));
+  assert.notEqual(sourceIdentity('/tmp/Org/Skills'), sourceIdentity('/tmp/org/skills'));
 });

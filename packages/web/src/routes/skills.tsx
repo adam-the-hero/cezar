@@ -226,7 +226,7 @@ function SkillsCatalog() {
               aria-label="Filter by repository"
               value={activeRepo ?? '__all__'}
               onChange={(event) => setRepoFilter(event.target.value === '__all__' ? null : event.target.value)}
-              className="h-8 w-full rounded-md border border-border bg-card px-2 text-[13px] text-foreground"
+              className="h-8 w-full rounded-md border border-border bg-card px-2 text-[13px] text-foreground outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
             >
               <option value="__all__">All repositories</option>
               {repoGroups.map((group) => (

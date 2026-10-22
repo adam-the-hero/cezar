@@ -532,22 +532,31 @@ export async function refreshTeamSkills(repoRoot: string): Promise<Skill[]> {
   return load;
 }
 
+/** Which repository a source names: the cache directory, with GitHub's case-insensitive
+ *  owner/name folded (shorthand and github.com URLs); local paths keep their case. */
+export function sourceIdentity(repo: string): string {
+  const key = basename(bareDirFor(repo));
+  const github = /^[\w.-]+\/[\w.-]+$/.test(repo) || /^(?:[a-z+]+:\/\/|git@)(?:[^@/]+@)?github\.com[/:]/i.test(repo);
+  return github ? key.toLowerCase() : key;
+}
+
 async function loadTeamSkills(repoRoot: string, refresh: boolean): Promise<Skill[]> {
   syncOrgSignature();
   const generation = teamSkillsGeneration;
   const config = await loadConfig(repoRoot);
   const org = (await loadWorkspaceConfig().catch(() => null))?.orgSkillsRepos ?? [];
   // Org repos are the user's own: strict `skills/` discovery, so docs and commands stay out.
-  // Order: what the project lists itself, then the org repos, then the implicit default — and the
-  // same repository (by cache identity, whatever its spelling) appears once, first spelling wins.
+  // Order: what the project lists itself, then the org repos, then the implicit default. The
+  // project's own list is kept as written (one repo at several refs is legitimate); org and
+  // default entries are dropped when their repository (by cache identity) is already present.
   const implicit = await projectGatedSkillsRepos(repoRoot);
   const orgSources = org.map((src) => ({ repo: src.repo, ref: src.ref, skillsDirOnly: true }));
   const own = config.skillsRepos.filter((src) => !implicit.has(src.repo));
   const defaults = config.skillsRepos.filter((src) => implicit.has(src.repo));
-  const sources: Array<SkillsRepoSource & { skillsDirOnly?: boolean }> = [];
-  const seenRepos = new Set<string>();
-  for (const src of [...own, ...orgSources, ...defaults]) {
-    const identity = bareDirFor(src.repo);
+  const sources: Array<SkillsRepoSource & { skillsDirOnly?: boolean }> = [...own];
+  const seenRepos = new Set(own.map((src) => sourceIdentity(src.repo)));
+  for (const src of [...orgSources, ...defaults]) {
+    const identity = sourceIdentity(src.repo);
     if (seenRepos.has(identity)) continue;
     seenRepos.add(identity);
     sources.push(src);
