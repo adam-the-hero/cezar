@@ -317,6 +317,24 @@ export const runRecordSchema = z.object({
   worktreePath: z.string().optional(),
   worktreeLifecycle: worktreeLifecycleProjectionSchema.optional(),
   branch: z.string().optional(),
+  /** An in-place run that switched the repo checkout to `branch` before it started. */
+  inPlaceBranch: z.literal(true).optional(),
+  /** In-place but a read-only Ask task (spec 2026-10-20-trunk-based-projects): no lease, no
+   *  writes, no landing. */
+  readOnly: z.literal(true).optional(),
+  /** The last auto-land of an in-place run (spec 2026-10-20-trunk-based-projects). */
+  landing: z
+    .object({
+      status: z.enum(['landed', 'nothing', 'failed']),
+      at: z.string(),
+      branch: z.string().optional(),
+      sha: z.string().optional(),
+      pushed: z.boolean().optional(),
+      files: z.array(z.string()).optional(),
+      stage: z.string().optional(),
+      error: z.string().optional(),
+    })
+    .optional(),
   /** Stable baseline for session git views: a worktree's fork ref, or an in-place run's starting commit. */
   baseBranch: z.string().optional(),
   /** Set when count-based retention (#483) reclaimed the worktree DIRECTORY (the branch is
@@ -592,6 +610,16 @@ export type DeleteRunResponse = z.infer<typeof deleteRunResponseSchema>;
 export const finishResponseSchema = z.object({ finished: z.literal(true) });
 export type FinishResponse = z.infer<typeof finishResponseSchema>;
 
+/** `POST /runs/:id/land` — an in-place task's Commit to the base branch (spec
+ *  2026-10-20-trunk-based-projects). Every outcome is a 200 carrying a human `message`. */
+export const landResponseSchema = z.object({
+  outcome: z.enum(['landed', 'nothing', 'failed', 'busy', 'unavailable']),
+  message: z.string(),
+  sha: z.string().optional(),
+  pushed: z.boolean().optional(),
+});
+export type LandResponse = z.infer<typeof landResponseSchema>;
+
 /** `POST /runs/:id/continue` — a refusal to reopen is a 409 carrying the engine's reason. */
 export const continueResponseSchema = z.object({ continued: z.literal(true) });
 export type ContinueResponse = z.infer<typeof continueResponseSchema>;
@@ -608,6 +636,14 @@ export const createPrResponseSchema = z.object({
   dryRun: z.boolean(),
 });
 export type CreatePrResponse = z.infer<typeof createPrResponseSchema>;
+
+/** `POST /runs/:id/pr/adopt` — record the PR the agent opened from this task's branch, found on
+ *  the forge by its head. `found: false` when there is none (or gh cannot say). */
+export const adoptPrResponseSchema = z.discriminatedUnion('found', [
+  z.object({ found: z.literal(true), url: z.string() }),
+  z.object({ found: z.literal(false) }),
+]);
+export type AdoptPrResponse = z.infer<typeof adoptPrResponseSchema>;
 
 /**
  * `POST /runs/:id/messages` — one of three shapes (#472), by how far the run has got:
@@ -1091,6 +1127,14 @@ export const createRunInputBaseSchema = z
     /** false → run in the repo working tree instead of an isolated worktree (read-only skills).
      *  Omit for the default. Ignored server-side when variants > 1. */
     worktree: z.boolean().optional(),
+    /** With `worktree: false`: switch the repo checkout to a branch before the agent starts — a
+     *  new one forked from the configured base, or `branch` when it already exists. */
+    newBranch: z.boolean().optional(),
+    /** The branch `newBranch` creates; omit for the namer's answer, else `cez/<id8>`. */
+    branch: z.string().trim().min(1).max(200).optional(),
+    /** true → a read-only Ask task (spec 2026-10-20-trunk-based-projects): runs in the repo
+     *  checkout with read-only tools, takes no lease and never lands. */
+    readOnly: z.boolean().optional(),
     /** true → autonomous run: never parks at "waiting"; auto-continues until done. */
     autonomous: z.boolean().optional(),
     /** false → keep the handoff journal but do not expose or request a follow-up todos file.

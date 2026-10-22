@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { worktreeLifecycleConfigSchema } from './worktree-lifecycle.ts';
 import { type Runner, runnerSchema } from './health.ts';
+import { MAX_SAVED_WORKSPACE_LAYOUTS, savedWorkspaceLayoutSchema } from './workspace-layouts.ts';
 
 /**
  * The workspace + settings families: `~/.cezar/config.json`'s settings slice, both GUI-pref bags
@@ -322,6 +323,9 @@ export const workspaceUiStateSchema = z.looseObject({
   /** Legacy source for default team-skill selections. New choices are project-scoped; this stays
    *  typed so projects without a local choice preserve selections from older cockpit versions. */
   importedSkills: z.array(z.string()).optional(),
+  /** Layouts the user saved by name in a task's Layout menu — offered in every task of every
+   *  project. One bad entry drops the list rather than the whole file. */
+  savedLayouts: z.array(savedWorkspaceLayoutSchema).catch([]).optional(),
 });
 export type WorkspaceUiState = z.infer<typeof workspaceUiStateSchema>;
 
@@ -365,6 +369,7 @@ export const setWorkspaceUiStateInputSchema = z
       })
       .optional(),
     importedSkills: z.array(z.string().min(1).max(200)).max(WORKSPACE_UI_STATE_MAX_KEYS).optional(),
+    savedLayouts: z.array(savedWorkspaceLayoutSchema).max(MAX_SAVED_WORKSPACE_LAYOUTS).optional(),
     keybindings: z
       .record(z.string().min(1).max(120), z.string().min(1).max(40).nullable())
       .refine((map) => Object.keys(map).length <= WORKSPACE_UI_STATE_MAX_KEYS, {
@@ -436,6 +441,18 @@ export const configResponseSchema = z.object({
   /** Optional review gate (#489): null = no config key, the `CEZ_REVIEW_GATE` env default (OFF)
    *  decides. */
   reviewGate: z.boolean().nullable(),
+  /** Trunk-based projects (spec 2026-10-20-trunk-based-projects); null = the key is unset
+   *  and the branch-per-task default applies. */
+  profile: z.enum(['branches', 'trunk']).nullable(),
+  taskWorkspace: z.enum(['worktree', 'in-place']).nullable(),
+  landing: z.enum(['review', 'auto']).nullable(),
+  /** Why `landing: auto` is not honored here (a git-tracked config.json), or null. */
+  landingBlocked: z.string().nullable(),
+  requiredChecks: z.array(z.string()),
+  defaultSkill: z.string().nullable(),
+  askSkill: z.string().nullable(),
+  /** False when `skillsRepos` is `[]` — team skill repositories are off for this project. */
+  teamSkills: z.boolean(),
 });
 export type ConfigResponse = z.infer<typeof configResponseSchema>;
 
@@ -489,6 +506,16 @@ export const setConfigInputSchema = z.object({
   liveTitleUpdates: z.boolean().nullable().optional(),
   /** null clears the key back to the env-default behavior (OFF). */
   reviewGate: z.boolean().nullable().optional(),
+  /** Trunk-based keys (spec 2026-10-20-trunk-based-projects): `null` clears each back to
+   *  the branch-per-task default. */
+  profile: z.enum(['branches', 'trunk']).nullable().optional(),
+  taskWorkspace: z.enum(['worktree', 'in-place']).nullable().optional(),
+  landing: z.enum(['review', 'auto']).nullable().optional(),
+  requiredChecks: z.array(z.string().trim().min(1).max(2_000)).max(10).nullable().optional(),
+  defaultSkill: z.string().trim().max(200).nullable().optional(),
+  askSkill: z.string().trim().max(200).nullable().optional(),
+  /** `false` writes `skillsRepos: []`; `true` drops that override back to the default repos. */
+  teamSkills: z.boolean().optional(),
 });
 export type SetConfigInput = z.infer<typeof setConfigInputSchema>;
 
